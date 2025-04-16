@@ -7,40 +7,12 @@ import matplotlib.pyplot as plotter
 from math import cos, sin, pi
 
 _DEBUG = False
-_BOUNDS = "Bounds:"
-_GOAL = "Goal:"
-_OBSTACLE = "Obstacle:"
-_START = "Start:"
-_ROBOT = "RobotLinks:"
-_ROBOT_LOC = "RobotBase:"
-_RECT_ROBOT = "RectRobot:"
-
-
-class RectRobot:
-    def __init__(self, h, w):
-        self.h = h
-        self.w = w
-
-    def fk(self, q):
-        p0 = q[:]
-        p1 = q + np.array([1, 0]) * self.w
-        p2 = p1 + np.array([0, 1]) * self.h
-        p3 = q + np.array([0, 1]) * self.h
-        return [p0, p1, p2, p3, p0]
-
-    def draw(self, q, color="b", show=False, base_color="b"):
-        """
-        Draw the robot with the provided configuration
-        """
-        pts = self.fk(q)
-        for i, p in enumerate(pts):
-            if i == 0:
-                plotter.plot(p[0], p[1], base_color + "o")
-            else:
-                plotter.plot([prev_p[0], p[0]], [prev_p[1], p[1]], color)
-            prev_p = p[:]
-        if show:
-            plotter.show(block=True)
+_BOUNDS = "Bounds"
+_GOAL = "Goal"
+_OBSTACLE = "Obstacle"
+_START = "Start"
+_ROBOT = "RobotLinks"
+_ROBOT_LOC = "RobotBase"
 
 
 class RevoluteRobotChain:
@@ -51,6 +23,8 @@ class RevoluteRobotChain:
         self.link_lengths = link_lengths
         if root is None:
             self.root = np.zeros(2)
+        else:
+            self.root = root
         self.lims = np.array([[-pi, pi], [-pi, pi], [-pi, pi]])
 
     def fk(self, q):
@@ -77,8 +51,56 @@ class RevoluteRobotChain:
         pts = np.array(pts)
 
         return pts
+    
+    def ik(self, target, q_init=None, max_iter=100, tol=1e-3, alpha=0.1):
+        """
+        Compute Inverse Kinematics using Jacobian Transpose method
+        """
+        target = target - self.root
+        n = len(self.link_lengths)
+        q = np.zeros(n) if q_init is None else np.array(q_init)
 
-    def draw(self, q, color="b", show=False, base_color="g"):
+        for _ in range(max_iter):
+            pts = self.fk(q)
+            end_effector = pts[-1]
+            error = np.array(target) - end_effector
+
+            if np.linalg.norm(error) < tol:
+                break
+
+            J = self.compute_jacobian(q)
+            dq = alpha * J.T @ error
+            q += dq
+
+            # 관절 제한 적용
+            q = np.clip(q, self.lims[:, 0], self.lims[:, 1])
+
+        return q
+
+
+    def compute_jacobian(self, q):
+        """
+        Compute Jacobian matrix for planar robot
+        :param q
+        :return: Jacobian (2 x n)
+        """
+        n = len(q)
+        J = np.zeros((2, n))
+        pts = self.fk(q)
+        end_effector = pts[-1]
+
+        theta = 0.0
+        for i in range(n):
+            theta += q[i]
+            r = end_effector - pts[i]
+            J[0, i] = -self.link_lengths[i] * sin(theta)
+            J[1, i] =  self.link_lengths[i] * cos(theta)
+
+        return J
+
+
+
+    def draw(self, q=None, color="b", show=False, base_color="g"):
         """
         Draw the robot with the provided configuration
         """
@@ -107,8 +129,10 @@ class PolygonEnvironment:
         robot - an instance of RevoluteRobotChain class or 2DPointRobot class
         """
         self.polygons = []
-        self.robot = None
-        self.robot_base = np.zeros(2)
+        self.robot_1 = None
+        self.robot_base_1 = np.zeros(2)
+        self.robot_2 = None
+        self.robot_base_2 = np.zeros(2)
         self.goal = None  # In configuration space
         self.start = None  # In configuration space
         self.line_parser = {
@@ -118,7 +142,6 @@ class PolygonEnvironment:
             _START: self.parse_start,
             _ROBOT: self.parse_robot_links,
             _ROBOT_LOC: self.parse_robot_base,
-            _RECT_ROBOT: self.parse_rect_robot,
         }
 
     def read_env(self, env_file_path):
@@ -138,7 +161,11 @@ class PolygonEnvironment:
             line_info = l.strip().split()
             if line_info[0].startswith("#"):
                 continue
-            self.line_parser[line_info[0]](line_info[1:])
+            if "_" in line_info[0]:
+                func, idx = line_info[0].split("_")
+                self.line_parser[func](line_info[1:], int(idx[0]))
+            else:
+                self.line_parser[line_info[0][:-1]](line_info[1:])
 
     def parse_bounds(self, line_data):
         """
@@ -179,48 +206,79 @@ class PolygonEnvironment:
         """
         self.start = np.array([float(l) for l in line_data])
 
-    def parse_robot_links(self, link_data):
-        self.robot = RevoluteRobotChain([float(l) for l in link_data], self.robot_base)
-        self.lims = self.robot.lims
+    def parse_robot_links(self, link_data, idx):
+        if idx == 1:
+            self.robot_1 = RevoluteRobotChain([float(l) for l in link_data], self.robot_base_1)
+            self.lims = self.robot_1.lims
+        elif idx == 2:
+            self.robot_2 = RevoluteRobotChain([float(l) for l in link_data], self.robot_base_2)
+            self.lims = self.robot_2.lims
 
-    def parse_robot_base(self, base_data):
-        self.robot_base = np.array([float(p) for p in base_data])
-        if self.robot is not None:
-            self.robot.root = self.robot_base[:]
 
-    def parse_rect_robot(self, robot_data):
-        self.robot = RectRobot(float(robot_data[0]), float(robot_data[1]))
+    def parse_robot_base(self, base_data, idx=None):
+        if idx == 1:
+            self.robot_base_1 = np.array([float(p) for p in base_data])
+            if self.robot_1 is not None:
+                self.robot_1.root = self.robot_base_1[:]
+        elif idx == 2:
+            self.robot_base_2 = np.array([float(p) for p in base_data])
+            if self.robot_2 is not None:
+                self.robot_2.root = self.robot_base_2[:]
 
-    def test_collisions(self, q):
+
+    def test_collisions(self, q1, q2):
         """
         Test collision for a specified robot configuration q and the environment env
         """
-        # Get robot links from current q
-        robot_pts = self.robot.fk(q)
-        robot_links = []
-        prev_pt = robot_pts[0]
+        # Get robot links from current 
+        robot_pts_1 = self.robot_1.fk(q1)
+        robot_pts_2 = self.robot_2.fk(q2)
+        
+        # Set each robot links 
+        # 1
+        robot_links_1 = []
+        robot_pts = robot_pts_1[0]
+        prev_pt = robot_pts_1[0]
+
         for pt in robot_pts[1:]:
-            robot_links.append((prev_pt, pt))
+            robot_links_1.append((prev_pt, pt))
+            prev_pt = pt[:]
+        # 2
+        robot_links_2 = []
+        robot_pts = robot_pts_2[0]
+        prev_pt = robot_pts_2[0]
+        for pt in robot_pts[1:]:
+            robot_links_2.append((prev_pt, pt))
             prev_pt = pt[:]
 
-        # Test collision with all polygons
-        for poly_num, polygon in enumerate(self.polygons):
-            if _DEBUG:
-                print("polygon", polygon)
-            for link_num, link in enumerate(robot_links):
-                if self.point_in_polygon(link[1], polygon):
-                    return True
-                if _DEBUG:
-                    print("Testing link", link_num)
-                for i in range(len(polygon)):
+        # Check collision between two robots
+        for link_num_1, link_1 in enumerate(robot_links_1):
+            for link_num_2, link_2 in enumerate(robot_links_2):
+                if self.line_line_collision(link_1, link_2):
                     if _DEBUG:
-                        print("\nTestint pt", i, "on polygon", poly_num)
-                    prev_pt = polygon[i - 1]
-                    pt = polygon[i]
-                    if self.line_line_collision(link, (prev_pt, pt)):
-                        if _DEBUG:
-                            print("Collision between", link, (prev_pt, pt))
-                        return True
+                        print(f"Collision between robot#1's {link_num_1}-th link ({link_1}), robot#2's {link_num_2}-th link ({link_2})")
+                    return True
+                
+
+        # # Test collision with all polygons
+        # for poly_num, polygon in enumerate(self.polygons):
+        #     if _DEBUG:
+        #         print("polygon", polygon)
+        #     for link_num, link in enumerate(robot_links):
+        #         if self.point_in_polygon(link[1], polygon):
+        #             return True
+        #         if _DEBUG:
+        #             print("Testing link", link_num)
+        #         for i in range(len(polygon)):
+        #             if _DEBUG:
+        #                 print("\nTestint pt", i, "on polygon", poly_num)
+        #             prev_pt = polygon[i - 1]
+        #             pt = polygon[i]
+        #             if self.line_line_collision(link, (prev_pt, pt)):
+        #                 if _DEBUG:
+        #                     print("Collision between", link, (prev_pt, pt))
+        #                 return True
+    
         return False
 
     def line_line_collision(self, l1, l2, eps=0.0001):
@@ -306,27 +364,53 @@ class PolygonEnvironment:
 
         return inside
 
-    def draw_env(self, q=None, show=True):
+    def draw_env(self, p1=None, p2=None, q1=None, q2=None, show=True):
         """
         Draw the environment obstacle map
         """
-        plotter.axis([self.x_min, self.x_max, self.y_min, self.y_max])
+        plotter.figure(figsize=(10, 5))
+        plotter.axis([self.x_min-10, self.x_max+10, self.y_min-10, self.y_max+10])
 
-        # Draw all obstacles
-        for p in self.polygons:
-            prev_pt = p[-1]
-            for pt in p:
-                plotter.plot([prev_pt[0], pt[0]], [prev_pt[1], pt[1]], "r")
-                prev_pt = pt[:]
+        # # Draw all obstacles
+        # for p in self.polygons:
+        #     prev_pt = p[-1]
+        #     for pt in p:
+        #         plotter.plot([prev_pt[0], pt[0]], [prev_pt[1], pt[1]], "r")
+        #         prev_pt = pt[:]
 
-        # Draw robot
-        if q is not None:
-            self.robot.draw(q)
+        # Draw Table
+        x = [-150,150]
+        y_start, y_end = 0,-10
 
-        # Draw goal
-        goal_fk = self.robot.fk(self.goal)
-        goal_x = goal_fk[-1]
-        plotter.plot(goal_x[0], goal_x[1], "go")
+        plotter.fill_between(x, y_start, y_end, color='lightgray')
+
+        # Draw start and goal
+        if (self.start.shape[0] == 3):              # option#1: configuration
+            start_fk = self.robot_1.fk(self.start)
+            start_x = start_fk[-1]
+
+            goal_fk = self.robot_2.fk(self.goal)
+            goal_x = goal_fk[-1]
+        
+        else:                                       # option#2: coordinate
+            start_x = self.start
+            goal_x = self.goal
+
+        # Draw robots
+        if p1:
+            q1 = self.robot_1.ik(p1)[0]
+        if p2: 
+            q2 = self.robot_2.ik(p2)[0]
+
+        if q1 is not None:
+            self.robot_1.draw(q1)
+
+        if q2 is not None:
+            self.robot_2.draw(q2)
+
+
+        plotter.plot(start_x[0], start_x[1], "ro", markersize=8)
+        plotter.plot(goal_x[0], goal_x[1], "ro", markersize=8)
 
         if show:
             plotter.show()
