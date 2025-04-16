@@ -42,7 +42,16 @@ class vrepWrapper:
         joint_names = ["LBR4p_joint{}".format(i) for i in range(1, 8)]
         self. joint_handles = [ vrep.simxGetObjectHandle(self.clientID, joint, vrep.simx_opmode_blocking)[1]
         for joint in joint_names]
-     
+
+        arm = vrep.simxGetObjectHandle(self.clientID, "BarrettHand", vrep.simx_opmode_blocking)[1]
+        self.goalPosition = vrep.simxGetJointPosition(self.clientID, arm, vrep.simx_opmode_blocking)
+
+        hand_joint_names = ["BarrettHand_jointB_{}".format(i) for i in range(0, 3)]
+        self.hand_joint_handles = [ vrep.simxGetObjectHandle(self.clientID, joint, vrep.simx_opmode_blocking)[1]
+        for joint in hand_joint_names]
+        print(self.hand_joint_handles)
+
+
         self.sa=sa
 
         self.setCollision(shm)
@@ -57,12 +66,21 @@ class vrepWrapper:
             self.test_collisions = self.slowCollisions
 
     def runTrajectory(self,angles):
+        for i in range(3):
+            vrep.simxSetJointPosition(self.clientID, self.hand_joint_handles[i], 0,
+                                            vrep.simx_opmode_blocking)
+        vrep.simxSynchronousTrigger(self.clientID)
+        time.sleep(5)
+        
         for angle in angles:
-            for i in range(7):
+            for i in range(2):
                 vrep.simxSetJointPosition(self.clientID, self.joint_handles[i], angle[i],
                                                 vrep.simx_opmode_blocking)
             vrep.simxSynchronousTrigger(self.clientID)
             time.sleep(0.01)
+
+
+
     def checkCollission(self,states):
         num_states = len(states)
         single_dim_states = np.reshape(states,-1)

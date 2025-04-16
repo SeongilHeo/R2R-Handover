@@ -64,6 +64,9 @@ class RevoluteRobotChain:
         Y = [self.root[1]]
         Thetas = [0.0]
         for i in range(len(self.link_lengths)):
+            # print(self.link_lengths)
+            # print(i)
+            # print(q)
             beta += q[i]
             x_i = self.link_lengths[i]*cos(beta)
             y_i = self.link_lengths[i]*sin(beta)
@@ -355,7 +358,7 @@ class PolygonEnvironment:
                 plotter.plot([e0[0], e1[0]], [e0[1], e1[1]], 'b.')
                 if dynamic_tree:
                     plotter.pause(0.001)
-
+        # plotter.pause(3)
         # Draw goal
         goal_fk = self.robot.fk(self.goal)
         goal_x = goal_fk[-1]
@@ -367,6 +370,7 @@ class PolygonEnvironment:
         plotter.plot(start_x[0], start_x[1], 'ro')
         plotter.plot(start_x[0], start_x[1], 'r.')
 
+        # print(plan)
         if plan is not None:
             self.robot.draw(plan[0], color='g')
             for i in range(len(plan)):
