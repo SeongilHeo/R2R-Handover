@@ -98,10 +98,12 @@ class RRT(object):
         lims=None,
         connect_prob=0.05,
         collision_func=None,
+        name=None
     ):
         """
         Initialize an RRT planning instance
         """
+        self.name = name
         self.K = num_samples
         self.n = num_dimensions
         self.epsilon = step_length
@@ -259,7 +261,7 @@ class RRT(object):
 
         x_new = x_near.state + (q - x_near.state) * (self.epsilon / distance)
 
-        if not self.in_collision(x_new):
+        if not self.in_collision(x_new, name=self.name):
             new_node = TreeNode(x_new, x_near)
             T.add_node(new_node, x_near)
 

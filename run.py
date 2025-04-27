@@ -6,9 +6,12 @@ Edited on Fri Mar 21 23:59:59 2025
 @author: tabor
 @editor: seongil
 """
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+
 from collisions import PolygonEnvironment
 import time
-# import vrepWrapper
+from vrep import VrepWrapper
 from rrt import *
 from prm import *
 import argparse
@@ -30,8 +33,8 @@ def main(args):
 
     # load problem
     if problem == "vrep":
-        environment = vrepWrapper.vrepWrapper()
-        step_length = 0.1
+        environment = VrepWrapper()
+        step_length = 0.05
     else:
         environment = PolygonEnvironment()
         environment.read_env(problem)
@@ -42,6 +45,9 @@ def main(args):
     if start is not None:
         environment.start = start
         environment.goal = goal
+    else:
+        start = environment.start
+        goal = environment.goal
 
     print(
         f"""
@@ -64,114 +70,137 @@ start-goal: ({start})-({goal})
 
     # PRM
     if method == "prm":
-        # Set Local Planner
-        if local_planner == "line":
-            local_planner = StraightLinePlanner(
-                step_length, environment.test_collisions
-            )
-        elif local_planner == "rrt":
-            local_planner = RRT(
-                num_samples=num_samples,
-                num_dimensions=dims,
-                step_length=step_length,
-                lims=environment.lims,
-                connect_prob=0.5,
-                collision_func=environment.test_collisions,
-            )
         # Set Model
-        model = PRM(
+        model1 = PRM(
             num_samples=num_samples,
-            local_planner=local_planner,
             num_dimensions=dims,
+            lims=environment.lims,
+            local_planner=local_planner,
+            collision_func=environment.test_collisions,
+            connect_prob=connect_prob,
             radius=radius,
             epsilon=step_length,
-            lims=environment.lims,
-            collision_func=environment.test_collisions,
+            name="robot1",
         )
 
-        print("Builing PRM")
-        model.build_prm()
-        build_time = time.time() - start_time
-        print("Build time", build_time)
+        model2 = PRM(
+            num_samples=num_samples,
+            num_dimensions=dims,
+            lims=environment.lims,
+            local_planner=local_planner,
+            collision_func=environment.test_collisions,
+            connect_prob=connect_prob,
+            radius=radius,
+            epsilon=step_length,
+            name="robot2",
+        )
 
-        starts, goals = [], []
-        starts.append(environment.start)
-        goals.append(environment.goal)
+
+        environment.set_start_goal_config()
+
+        print("Builing PRM")
+        model1.build_prm()
+        model2.build_prm()
+
 
         print("Finding Plan")
+        local_plan_1, plan_1, _ = model1.query(environment.robot1.start, environment.robot1.goal)
+        local_plan_2, plan_2, _ = model1.query(environment.robot2.start, environment.robot2.goal)
 
-        # Get new start & goal points
-        while True:
-            INPUT = input("Input Start and Goal (ex: -50 50 / 75 80 or exit): ")
+        print(
+            "robot1's plan:",
+            [tuple(round(v, 2) for v in point) for point in plan_1] if plan_1 else None,
+        )
+        print(
+            "robot2's plan:",
+            [tuple(round(v, 2) for v in point) for point in plan_2] if plan_2 else None,
+        )
 
-            if not INPUT or INPUT.strip() == "exit":
-                break
-            
-            start, goal = ([float(p) for p in point.split()] for point in INPUT.split("/"))
-            starts.append(start)
-            goals.append(goal)
-        for start, goal in zip(starts, goals):
-            time_stamp = time.time()
-            local_plan, plan, visited = model.query(start, goal)
+        # draw plan (global)
+        environment.draw_plan(
+            plan1=plan_1,
+            plan2=plan_2,
+            planner1=model1,
+            planner2=model2,
+            dynamic_tree=False,
+            dynamic_plan=True,
+            show=True,
+        )
 
-            print(
-                "plan:",
-                [tuple(round(v, 2) for v in point) for point in plan] if plan else None,
-            )
-            print("plan_time =", time.time() - time_stamp)
-
-            environment.start, environment.goal = start, goal
-
-            # draw plan (global)
+        # draw local plan
+        if local_planner.__class__.__name__ == "RRT":
             environment.draw_plan(
-                plan=plan,
-                planner=model,
+                plan1=local_plan_1,
+                plan2=local_plan_2,
+                planner1=model1,
+                planner2=model2,
                 dynamic_tree=False,
                 dynamic_plan=True,
                 show=True,
             )
-
-            # draw local plan
-            if local_planner.__class__.__name__ == "RRT":
-                environment.draw_plan(
-                    plan=local_plan,
-                    planner=model,
-                    dynamic_tree=False,
-                    dynamic_plan=True,
-                    show=True,
-                )
-
+            
         run_time = time.time() - start_time
         print("run_time =", run_time)
 
     # RRT
     elif method == "rrt":
         # Load Model
-        model = RRT(
+        model1 = RRT(
             num_samples=num_samples,
             num_dimensions=dims,
             step_length=step_length,
             lims=environment.lims,
             connect_prob=connect_prob,
             collision_func=environment.test_collisions,
+            name="robot1"
+        )       
+        model2 = RRT(
+            num_samples=num_samples,
+            num_dimensions=dims,
+            step_length=step_length,
+            lims=environment.lims,
+            connect_prob=connect_prob,
+            collision_func=environment.test_collisions,
+            name="robot2"
         )
+
+        environment.set_start_goal_config()
+
         if connect:
-            plan = model.build_rrt_connect(environment.start, environment.goal)
+            plan_robot1 = model1.build_rrt_connect(environment.robot1.start, environment.robot1.goal)
+            plan_robot2 = model2.build_rrt_connect(environment.robot2.start, environment.robot2.goal)
         elif bidirection:
-            plan = model.build_bidirectional_rrt_connect(environment.start, environment.goal)
+            plan_robot1 = model1.build_bidirectional_rrt_connect(environment.robot1.start, environment.robot1.goal)
+            plan_robot2 = model2.build_bidirectional_rrt_connect(environment.robot2.start, environment.robot2.goal)
         else:
-            plan = model.build_rrt(environment.start, environment.goal)
+            plan_robot1 = model1.build_rrt(environment.robot1.start, environment.robot1.goal)
+            plan_robot2 = model2.build_rrt(environment.robot2.start, environment.robot2.goal)
 
         run_time = time.time() - start_time
-        print(
-            "plan:",
-            [tuple(round(v, 2) for v in point) for point in plan] if plan else None,
-        )
-        print("run_time =", run_time)
+        
+        print("robot1's plan:")
+        if plan_robot1:
+            for point in plan_robot1:
+                print(tuple(f"{v:+2.02f}" for v in point))
+        else:
+            print(None)
+
+        print("robot2's plan:")
+        if plan_robot2:
+            for point in plan_robot2:
+                print(tuple(f"{v:+2.02f}" for v in point))
+        else:
+            print(None)
 
         # Draw plan
         environment.draw_plan(
-            plan=plan, planner=model, dynamic_tree=False, dynamic_plan=True, show=True
+            plan1=plan_robot1, 
+            plan2=plan_robot2, 
+            planner1=model1, 
+            planner2=model2, 
+            dynamic_tree=False, 
+            dynamic_plan=True, 
+            show=True
         )
 
     if problem == "vrep":
@@ -193,7 +222,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--problem",
         type=str,
-        default="env0.txt",
+        default="env.txt",
         help="Path to the environment file (default: env0.txt, options: env0.txt, env1.txt, vrep)",
     )
     parser.add_argument(
@@ -211,7 +240,7 @@ if __name__ == "__main__":
         help="Number of samples to use in the RRT (default: 5000)",
     )
     parser.add_argument(
-        "--step_length", type=float, default=2, help="Step length to use in the RRT"
+        "--step_length", type=float, default=0.15, help="Step length to use in the RRT"
     )
     parser.add_argument(
         "--connect_prob",

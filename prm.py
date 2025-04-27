@@ -5,26 +5,13 @@ Package providing implementation of a probabilistic roadmap algorithm
 
 import numpy as np
 import heapq
-
+from rrt import *
 
 def fake_in_collision(q):
     """
     We never collide with this function!
     """
     return False
-
-
-def euclidean_heuristic(self, s, goal):
-    """
-    Euclidean heuristic function
-
-    s - configuration vector
-    goal - goal vector
-
-    returns - floating point estimate of the cost to the goal from state s
-    """
-    return np.linalg.norm(s - goal)
-
 
 def get_distance(path):
     distance = 0
@@ -146,9 +133,11 @@ def backpath_global(node, tree_nodes):
 
 
 class StraightLinePlanner:
-    def __init__(self, step_size, collision_func=None):
+    def __init__(self, step_size, collision_func=None, name=None):
         self.in_collision = collision_func
         self.epsilon = step_size
+        self.name = name
+
         if collision_func is None:
             self.in_collision = fake_in_collision
 
@@ -169,7 +158,7 @@ class StraightLinePlanner:
 
         direction = direction / distance
         for i in range(int(distance / self.epsilon) + 1):
-            if self.in_collision(start + i * self.epsilon * direction):
+            if self.in_collision(start + i * self.epsilon * direction, self.name):
                 return False
 
         return True
@@ -258,26 +247,46 @@ class PRM:
     def __init__(
         self,
         num_samples,
-        local_planner,
         num_dimensions,
+        local_planner,
         lims=None,
         collision_func=None,
+        connect_prob=0.5,
         radius=2.0,
         epsilon=0.1,
+        name=None,
     ):
-        self.local_planner = local_planner
-        self.r = radius
         self.N = num_samples
         self.n = num_dimensions
+        self.r = radius
         self.epsilon = epsilon  # step_lenght
         self.graph_search = self.uniform_cost_search
+        self.name = name
+
+        if local_planner == "line":
+            self.local_planner = StraightLinePlanner(
+                epsilon,
+                collision_func,
+                name=name
+            )
+        elif local_planner == "rrt":
+            self.local_planner = RRT(
+                num_samples=num_samples,
+                num_dimensions=num_dimensions,
+                step_length=epsilon,
+                lims=lims,
+                connect_prob=connect_prob,
+                collision_func=collision_func,
+                name=name
+            )
 
         self.in_collision = collision_func
         if collision_func is None:
             self.in_collision = fake_in_collision
 
-        # Setup range limits
+
         self.limits = lims
+        # Setup range limits
         if self.limits is None:
             self.limits = []
             for n in range(num_dimensions):
@@ -298,7 +307,7 @@ class PRM:
 
         for _ in range(self.N):
             q = self.sample()
-            if not self.in_collision(q):
+            if not self.in_collision(q, name=self.name):
                 new_node = RoadMapNode(q)
                 neighbors = self.find_valid_neighbors(new_node, self.T.nodes, self.r)
                 self.T.add_node(new_node, neighbors)
