@@ -12,11 +12,12 @@ import time
 import vrepWrapper
 from rrt import *
 
-connect = True
-bidirection = True
+connect = False
+bidirection = False
+star = True
 num_samples=5000
-problem = "vrep"
-#problem = './env0.txt'
+#problem = "vrep"
+problem = './env0.txt'
 
 np.random.seed(0)
 
@@ -40,9 +41,11 @@ rrt = RRT(num_samples,
           lims = environment.lims,
           connect_prob = 0.05,
           collision_func=environment.test_collisions)
-if connect:
+if star:
+    plan = rrt.build_rrt_star(environment.start, environment.goal)
+elif connect:
     plan = rrt.build_rrt_connect(environment.start, environment.goal)
-elif:
+elif bidirection:
     plan = rrt.build_bidirectional_rrt_connect(environment.start, environment.goal)
 else:
     plan = rrt.build_rrt(environment.start, environment.goal)
