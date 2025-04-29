@@ -323,7 +323,7 @@ class PolygonEnvironment:
                 print("polygon", polygon)
             for link_num, link in enumerate(robot_links):
                 if self.point_in_polygon(link[1], polygon):
-                    print("polyon in point")
+                    print("polygon in point")
                     return True
                 if link[1][1] < 0:
                     print("check",link)
@@ -608,6 +608,10 @@ class PolygonEnvironment:
                     image = imageio.imread(fname)
                     writer.append_data(image)
                     os.remove(fname)
+        
+        # stay on ending frame
+        if show:
+            plotter.show(block=True)
 
 
     def find_handover_point(self, num_samples=100):
