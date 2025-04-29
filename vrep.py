@@ -7,11 +7,13 @@ ref: https://manual.coppeliarobotics.com/index.html > Regular API reference
 import time
 import numpy as np
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
+from scipy.optimize import minimize
+from math import pi
 
 # ROBOT = "LBRiiwa7R800"
 ROBOT = "LBRiiwa14R820"
 class Arm:
-    def __init__(self, start, goal, joint_names, joint_handles, link_names, link_handles, gripper, sim, simIK):
+    def __init__(self, robot: int, start, goal, joint_names, joint_handles, link_names, link_handles, gripper, sim, simIK):
         self.sim = sim
         self.simIK = simIK
         self.start = start
@@ -22,15 +24,20 @@ class Arm:
         self.link_handles = link_handles
         self.gripper = gripper
 
-        self.init_ik()
+        self.init_ik(robot)
+        
+        self.lims = [self.sim.getJointInterval(self.joint_handles[i])[1] for i in range(len(self.joint_handles))]
     
-    def init_ik(self):
+    def init_ik(self, robot: int):
         
         simBase = -1
         # Create IK environment
         self.ikEnv = self.simIK.createEnvironment()
         self.ikBase = self.simIK.createDummy(self.ikEnv)
         self.simTarget = self.sim.getObject("/Target")
+
+        self.simIK.setObjectMatrix(self.ikEnv, self.ikBase, -1, self.sim.getObjectMatrix(self.sim.getObject(f"/{ROBOT}[{robot}]/joint1")))
+
         parent = self.ikBase
         
         # Duplicate IK Joints
@@ -68,14 +75,19 @@ class Arm:
         ikElementHandle = self.simIK.addElement(self.ikEnv, self.ikGroup_damped, self.ikTip)
         self.simIK.setElementBase(self.ikEnv, self.ikGroup_damped, ikElementHandle, self.ikBase)
         self.simIK.setElementConstraints(self.ikEnv, self.ikGroup_damped, ikElementHandle, self.simIK.constraint_pose)
+
             
-    def ik(self, target):
+    def ik_vrep(self, target):
         self.sim.setObjectPosition(self.simTarget, target.tolist())
 
         # Compute IK
         res, *_ = self.simIK.handleGroup(self.ikEnv, self.ikGroup_undamped)
         if res != self.simIK.result_success:
             res, *_ = self.simIK.handleGroup(self.ikEnv, self.ikGroup_damped)
+            if res != self.simIK.result_success:
+                print("Both solvers failed")
+            else:
+                print("Undamped solver failed, damped solver success")
 
         # Load IK Joints
         joint_positions = []
@@ -83,6 +95,28 @@ class Arm:
             joint_positions.append(self.simIK.getJointPosition(self.ikEnv, self.ikJoints[i]))
 
         return np.array(joint_positions)
+    
+    def cost(self, q, target):
+
+        for joint, angle in zip(self.joint_handles, q):
+            self.sim.setJointPosition(joint, angle)
+        
+        pos_error = np.linalg.norm(self.sim.getObjectPosition(self.gripper) - target)
+
+        return pos_error
+    
+    def ik(self, target, q_init=None):
+        if q_init is None:
+            q_init = [1.57,0,0,0,0,0,0]   
+
+        result = minimize(
+            fun=lambda q: self.cost(q, target),
+            x0=np.array(q_init),
+            bounds=self.lims,
+            method='trust-constr'
+        )
+
+        return result.x
 
 class VrepWrapper:
     def __init__(self):
@@ -123,6 +157,7 @@ class VrepWrapper:
         
         # robot 1
         self.robot1 = Arm(
+            robot = 0,
             sim = self.sim,
             simIK = self.simIK,
             start = self.start,
@@ -135,6 +170,7 @@ class VrepWrapper:
         )
         # robot 2
         self.robot2 = Arm(
+            robot = 1,
             sim = self.sim,
             simIK = self.simIK,
             start = self.handover,
