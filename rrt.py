@@ -283,7 +283,8 @@ class RRT(object):
         for i in range(self.K):
             x_rand = self.sample()
             status, new_node = self.extend_rewire(self.T, x_rand)
-
+            # if status == _REACHED:
+            #     self.record.append((i, self.T.get_back_path(new_node), new))
 
         if status == _REACHED:
             return self.T.get_back_path(new_node)
@@ -301,25 +302,6 @@ class RRT(object):
         else:
             return np.random.uniform(self.limits[:, 0], self.limits[:, 1])
         
-    # added
-    def collision_free(self, q1, q2, resolution=0.1):
-        '''
-        Check if the path from q1 to q2 is collision free.
-        We interpolate between q1 and q2 with steps of size (resolution * epsilon).
-        '''
-        dist = np.linalg.norm(q2 - q1)
-        if dist == 0:
-            return True
-        num_steps = int(dist / (resolution * self.epsilon))
-        if num_steps < 2:
-            num_steps = 2
-        for i in np.linspace(0, 1, num_steps):
-            q = q1 + i * (q2 - q1)
-            if self.in_collision(q, name=self.name):
-                return False
-        return True
-    # end added
-    
     def extend(self, T, q, goal_start=False):
         """
         Perform rrt extend operation.
