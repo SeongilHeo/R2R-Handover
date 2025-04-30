@@ -15,19 +15,15 @@ python
 ## Files
 ```
 .
-├── README.txt
-├── collisions.py
-├── env0.txt
-├── env1.txt
-├── lbr4_testscript.py
-├── prm.py
-├── rrt.py
+├── README.md
+├── env.txt
+├── R2R.ttt
 ├── run.py
-├── vrepWrapper.py
-└── vrepfiles
-    └── vrepfiles
-        ├── ...
-        └── vrepConst.py
+├── vrep.py
+├── collisions.py
+├── rrt.py
+├── prm.py
+└── robot_motion.gif
 ```
 
 ## Usage
