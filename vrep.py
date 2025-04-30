@@ -361,14 +361,25 @@ class VrepWrapper:
         self.sim.setObjectPosition(self.handover_handle, self.handover.tolist())
         self.sim.setObjectPosition(self.end_handle, self.goal.tolist())
 
-        self.robot1.start = self.robot1.ik(self.start)
-        self.robot1.goal = self.robot1.ik(self.handover)
-        self.robot2.start = self.robot2.ik(self.handover)
-        self.robot2.goal = self.robot2.ik(self.goal)
+        # self.robot1.start = self.robot1.ik(self.start)
+        # self.robot1.goal = self.robot1.ik(self.handover)
+        # self.robot2.start = self.robot2.ik(self.handover)
+        # self.robot2.goal = self.robot2.ik(self.goal)
 
-        for ps in [self.robot1.start, self.robot1.goal, self.robot2.start, self.robot2.goal]:
-            print(tuple(f"{p:+2.09f}" for p in ps ))
+        data = [
+            [+2.539857039, -0.809220588, +0.533304724, +0.732736530, +0.177888697, +0.011571120, +0.157973681],
+            [+0.686141298, +1.144134693, +1.798032392, +1.208946998, +0.072557405, -0.186249223, +0.046217752],
+            [+0.677549070, +1.111408814, +1.844167914, +1.213330375, +0.026713053, -0.169324889, +0.042448254],
+            [+2.558053932, -1.089733028, +0.364439930, +1.033840097, -0.003290346, -0.132617245, +0.072865523]
+        ]
+        self.robot1.start = data[0]# self.robot1.ik(self.start)
+        self.robot1.goal =  data[1]#self.robot1.ik(self.handover)
+        self.robot2.start = data[2]# self.robot2.ik(self.handover)
+        self.robot2.goal =  data[3]#self.robot2.ik(self.goal)
 
+
+        # for ps in [self.robot1.start, self.robot1.goal, self.robot2.start, self.robot2.goal]:
+        #     print(tuple(f"{p:+2.09f}" for p in ps ))
     def vrepStop(self):
         self.sim.stopSimulation()
 

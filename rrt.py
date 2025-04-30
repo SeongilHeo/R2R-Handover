@@ -2,12 +2,34 @@
 """
 Package providing helper classes and functions for performing graph search operations for planning.
 """
+from tracemalloc import start
 import numpy as np
+from time import time
 
 _TRAPPED = "trapped"
 _ADVANCED = "advanced"
 _REACHED = "reached"
 
+_COLLISION = 0
+_NEAR = 1
+_NEIGH = 2
+_TOTAL = 3
+
+def compute_dist(A, B):
+    """
+    Compute the cost of a path
+    path - list of states in the path
+    returns - cost of the path
+    """
+    cost = np.linalg.norm(A - B)
+    return cost
+
+def compute_smooth(path):
+    pass
+
+
+def compute_cost(path):
+    pass
 
 class TreeNode:
     """
@@ -53,7 +75,7 @@ class RRTSearchTree:
         min_d = 1000000
         nn = self.root
         for n_i in self.nodes:
-            d = np.linalg.norm(s_query - n_i.state)
+            d = compute_dist(s_query, n_i.state)
             if d < min_d:
                 nn = n_i
                 min_d = d
@@ -66,7 +88,7 @@ class RRTSearchTree:
         """
         neighbors = []
         for n_i in self.nodes:
-            d = np.linalg.norm(s_query - n_i.state)
+            d = compute_dist(s_query, n_i.state)
             if d < radius:
                 neighbors.append(n_i)
         return neighbors
@@ -148,7 +170,6 @@ class RRT(object):
         self.epsilon = step_length
         self.connect_prob = connect_prob
         self.radius = radius # for rrt*
-
         self.in_collision = collision_func
         if collision_func is None:
             self.in_collision = self.fake_in_collision
@@ -164,6 +185,15 @@ class RRT(object):
         self.ranges = self.limits[:, 1] - self.limits[:, 0]
         self.found_path = False
 
+        self.time_table = {
+            _COLLISION: 0,
+            _NEAR: 0,
+            _NEIGH: 0,
+            _TOTAL: 0
+        }
+
+        self.record =[]
+
     def build_rrt(self, init, goal):
         """
         Build the rrt from init to goal
@@ -175,15 +205,16 @@ class RRT(object):
 
         # Build tree and search
         self.T = RRTSearchTree(init)
-
+        start_time = time()
         # Sample and extend
         for _ in range(self.K):
             x_rand = self.sample()
             status, new_node = self.extend(self.T, x_rand)
 
             if status == _REACHED:
+                self.time_table[_TOTAL] = (time() - start_time)
                 return self.T.get_back_path(new_node)
-
+        self.time_table[_TOTAL] = (time() - start_time)
         return None
 
     def build_rrt_connect(self, init, goal):
@@ -197,7 +228,8 @@ class RRT(object):
 
         # Build tree and search
         self.T = RRTSearchTree(init)
-
+        
+        start_time = time()
         # Sample and extend
         for i in range(self.K):
             x_rand = self.sample()
@@ -208,8 +240,10 @@ class RRT(object):
                     break
 
             if status == _REACHED:
+                self.time_table[_TOTAL] = (time() - start_time)
                 return self.T.get_back_path(new_node)
-
+        
+        self.time_table[_TOTAL] = (time() - start_time)
         return None
 
     def build_bidirectional_rrt_connect(self, init, goal):
@@ -227,7 +261,7 @@ class RRT(object):
         self.T_goal = RRTSearchTree(goal)
 
         T_a, T_b = self.T_init, self.T_goal
-
+        start_time = time()
         for iter in range(self.K):
             goal_start = True if (T_a.root.state == self.goal).all() else False
 
@@ -242,7 +276,7 @@ class RRT(object):
 
                     if (
                         status_b == _REACHED
-                        or np.linalg.norm(node_b.state - node_a.state) < self.epsilon
+                        or compute_dist(node_b.state, node_a.state) < self.epsilon
                     ):
                         self.T = RRTSearchTree(self.init)
                         self.T.nodes = self.T_init.nodes + self.T_goal.nodes
@@ -261,10 +295,12 @@ class RRT(object):
                         if not (path[0] == self.init).all():
                             path.reverse()
 
+                        self.time_table[_TOTAL] = (time() - start_time)
                         return path
             if len(T_a.nodes) > len(T_b.nodes):
                 T_a, T_b = T_b, T_a
 
+        self.time_table[_TOTAL] = (time() - start_time)
         return None
 
     # Added
@@ -279,16 +315,18 @@ class RRT(object):
         
         # Build tree and search
         self.T = RRTSearchTree(init)
-
+        start_time = time()
         for i in range(self.K):
             x_rand = self.sample()
             status, new_node = self.extend_rewire(self.T, x_rand)
-            # if status == _REACHED:
-            #     self.record.append((i, self.T.get_back_path(new_node), new))
+            if status == _REACHED:
+                self.record(i, self.T.get_back_path(new_node))
 
         if status == _REACHED:
+            self.time_table[_TOTAL] = (time() - start_time)
             return self.T.get_back_path(new_node)
-
+        
+        self.time_table[_TOTAL] = (time() - start_time)
         return None
 
     def sample(self, goal_start=False):
@@ -310,19 +348,24 @@ class RRT(object):
            status can be: _TRAPPED, _ADVANCED or _REACHED
         """
         goal = self.init if goal_start else self.goal
-
+        # Collision time (start)
+        ne_start_time = time()
         x_near, distance = T.find_nearest(q)
+        self.time_table[_NEAR] += (time() - ne_start_time)
 
         if distance < self.epsilon:
             return _TRAPPED, None
-
         x_new = x_near.state + (q - x_near.state) * (self.epsilon / distance)
-
+        # Collision time (start)
+        c_start_time = time()
         if not self.in_collision(x_new, name=self.name):
+            # Collision time (end)
+            self.time_table[_COLLISION] += (time() - c_start_time)
+
             new_node = TreeNode(x_new, x_near)
             T.add_node(new_node, x_near)
 
-            if np.linalg.norm(x_new - goal) < self.epsilon:
+            if compute_dist(x_new, goal) < self.epsilon:
                 if (x_new != goal).all():
                     goal_node = TreeNode(goal, new_node)
                     T.add_node(goal_node, new_node)
@@ -343,7 +386,9 @@ class RRT(object):
            status can be: _TRAPPED, _ADVANCED or _REACHED
         """
         # 1. Find the nearest node in T and the distance to q
+        ne_start_time = time()
         x_nearest, distance = T.find_nearest(q)
+        self.time_table[_NEAR] += (time() - ne_start_time)
 
         # Cannot extend if q is too close to x_nearest
         if distance < self.epsilon:
@@ -352,12 +397,17 @@ class RRT(object):
         # 2. Steer: create new point x_new at distance epsilon from x_nearest toward q
         x_new = x_nearest.state + (q - x_nearest.state) * (self.epsilon / distance)
         # cost to reach x_new via x_nearest
-        c_new = x_nearest.cost + np.linalg.norm(x_new - x_nearest.state)
+        c_new = x_nearest.cost + compute_dist(x_new, x_nearest.state)
 
         # 3. Collision check for the new edge
+        # Collision time (start)
+        t_start_time = time()
         if not self.in_collision(x_new, name=self.name):
+            self.time_table[_COLLISION] += (time() - t_start_time)
             # 4. Find all existing nodes within rewiring radius
+            n_start_time = time()
             neighbor_nodes = T.find_neighbors(x_new, self.radius)
+            self.time_table[_NEIGH] += (time() - n_start_time)
 
             best_parent = x_nearest
             best_cost = c_new
@@ -365,8 +415,11 @@ class RRT(object):
 
             # 5. Among neighbors, pick a collision-free parent with minimal cost
             for near_node in neighbor_nodes:
+                c_start_time = time()
                 if not self.in_collision(near_node.state, name=self.name):
-                    cost = near_node.cost + np.linalg.norm(near_node.state - x_new)
+                    self.time_table[_COLLISION] += (time() - c_start_time)
+
+                    cost = near_node.cost + compute_dist(near_node.state, x_new)
                     if cost < best_cost:
                         best_parent = near_node
                         best_cost = cost
@@ -378,7 +431,7 @@ class RRT(object):
 
             # 7. Rewire: try to connect safe neighbors through new_node if it lowers their cost
             for near_node in safe_neighbor_nodes:
-                new_cost = new_node.cost + np.linalg.norm(near_node.state - new_node.state)
+                new_cost = new_node.cost + compute_dist(near_node.state, new_node.state)
                 if new_cost < near_node.cost:
                     # remove old edge and add the new lower-cost edge
                     T.remove_edge(near_node.parent, near_node)
@@ -386,7 +439,7 @@ class RRT(object):
                     T.add_edge(new_node, near_node)
 
             # 8. Check if the newly added node reached the goal
-            cost_to_goal = np.linalg.norm(x_new - self.goal)
+            cost_to_goal = compute_dist(x_new, self.goal)
             if cost_to_goal < self.epsilon:
                 # if x_new is not exactly the goal, add a goal node
                 if not np.allclose(x_new, self.goal):
@@ -407,3 +460,11 @@ class RRT(object):
         We never collide with this function!
         """
         return False
+
+    def record(self, iter, path):
+        """
+        Record the path and time taken
+        """
+        self.record.append([iter, path, self.time_table.items()])
+
+
