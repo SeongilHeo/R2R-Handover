@@ -153,6 +153,7 @@ start-goal: ({start})-({goal})
             lims=environment.lims,
             connect_prob=connect_prob,
             collision_func=environment.test_collisions,
+            radius=radius,
             name="robot1"
         )       
         model2 = RRT(
@@ -162,6 +163,7 @@ start-goal: ({start})-({goal})
             lims=environment.lims,
             connect_prob=connect_prob,
             collision_func=environment.test_collisions,
+            radius=radius,
             name="robot2"
         )
 
