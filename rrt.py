@@ -14,7 +14,7 @@ class TreeNode:
     Class to hold node state and connectivity for building an RRT
     """
 
-    def __init__(self, state, parent=None, cost=0.0): # cost added
+    def __init__(self, state, parent=None, cost=0.0):
         self.state = state
         self.children = []
         self.parent = parent
@@ -26,6 +26,11 @@ class TreeNode:
         """
         self.children.append(child)
 
+    def remove_child(self, child): 
+        """
+        Remove a child node
+        """
+        self.children.remove(child)
 
 class RRTSearchTree:
     """
@@ -53,25 +58,50 @@ class RRTSearchTree:
                 nn = n_i
                 min_d = d
         return (nn, min_d)
+    
+    def find_neighbors(self, s_query, radius):
+        """
+        Find nodes in tree within radius of s_query
+        returns - list of nodes within radius
+        """
+        neighbors = []
+        for n_i in self.nodes:
+            d = np.linalg.norm(s_query - n_i.state)
+            if d < radius:
+                neighbors.append(n_i)
+        return neighbors
 
-    def add_node(self, node, parent, cost=None): # cost added
+    def add_node(self, node, parent):
         """
         Add a node to the tree
         node - new node to add
         parent - nodes parent, already in the tree
         """
         
-        # Added
-        if cost is None:
-            node.cost = getattr(parent, 'cost', 0.0) + np.linalg.norm(node.state - parent.state)
-        else:
-            node.cost = cost
-        # End of added
-            
         self.nodes.append(node)
         self.edges.append((parent.state, node.state))
         node.parent = parent
         parent.add_child(node)
+
+    def add_edge(self, parent, child):
+        """
+        Add an edge to the tree
+        parent - parent node
+        child - child node
+        """
+        parent.add_child(child)
+        child.parent = parent
+        self.edges.append((parent.state, child.state))
+
+    def remove_edge(self, parent, child):
+        """
+        Remove an edge from the tree
+        parent - parent node
+        child - child node
+        """
+        parent.remove_child(child)
+        child.parent = None
+        self.edges.remove((parent.state, child.state))
 
     def get_states_and_edges(self):
         """
@@ -93,7 +123,6 @@ class RRTSearchTree:
         path.reverse()
         return path
 
-
 class RRT(object):
     """
     Rapidly-Exploring Random Tree Planner
@@ -104,6 +133,7 @@ class RRT(object):
         num_samples,
         num_dimensions=2,
         step_length=1,
+        radius=0.1,
         lims=None,
         connect_prob=0.05,
         collision_func=None,
@@ -117,6 +147,7 @@ class RRT(object):
         self.n = num_dimensions
         self.epsilon = step_length
         self.connect_prob = connect_prob
+        self.radius = radius # for rrt*
 
         self.in_collision = collision_func
         if collision_func is None:
@@ -245,77 +276,20 @@ class RRT(object):
         """
         self.goal = np.array(goal)
         self.init = np.array(init)
-        # create tree and set root cost
-        self.T = RRTSearchTree(self.init)
-        self.T.root.cost = 0.0
+        
+        # Build tree and search
+        self.T = RRTSearchTree(init)
 
         for i in range(self.K):
-            # 1) sample
-            q_rand = self.sample()
+            x_rand = self.sample()
+            status, new_node = self.extend_rewire(self.T, x_rand)
 
-            # 2) find nearest & steer
-            nearest, dist = self.T.find_nearest(q_rand)
-            if dist == 0:
-                continue
-            direction = (q_rand - nearest.state) / dist
-            new_state = nearest.state + min(self.epsilon, dist) * direction
 
-            # 3) collision check
-            if not self.collision_free(nearest.state, new_state):
-                continue
+        if status == _REACHED:
+            return self.T.get_back_path(new_node)
 
-            # 4) find neighbors within radius
-            r = getattr(self, 'neighbor_radius', self.epsilon * 5.0)
-            neighbors = [n for n in self.T.nodes
-                         if np.linalg.norm(n.state - new_state) <= r]
-
-            # 5) choose best parent among neighbors
-            best_cost, best_parent = float('inf'), None
-            for n in neighbors:
-                if self.collision_free(n.state, new_state):
-                    c = n.cost + np.linalg.norm(n.state - new_state)
-                    if c < best_cost:
-                        best_cost, best_parent = c, n
-            # fallback to nearest if no neighbor is valid
-            if best_parent is None:
-                if not self.collision_free(nearest.state, new_state):
-                    continue
-                best_parent, best_cost = nearest, nearest.cost + np.linalg.norm(nearest.state - new_state)
-
-            # 6) add the new node
-            new_node = TreeNode(new_state)
-            self.T.add_node(new_node, best_parent, cost=best_cost)
-
-            # 7) rewire: see if going through new_node improves any neighbors
-            for n in neighbors:
-                if n is new_node:
-                    continue
-                new_cost = new_node.cost + np.linalg.norm(n.state - new_node.state)
-                if new_cost < n.cost and self.collision_free(new_node.state, n.state):
-                    # detach from old parent
-                    old_parent = n.parent
-                    try:
-                        old_parent.children.remove(n)
-                        self.T.edges.remove((old_parent.state, n.state))
-                    except:
-                        pass
-                    # attach to new_node
-                    n.parent = new_node
-                    new_node.children.append(n)
-                    n.cost = new_cost
-                    self.T.edges.append((new_node.state, n.state))
-
-            # 8) check if we can connect to goal
-            if np.linalg.norm(new_state - self.goal) < self.epsilon:
-                if self.collision_free(new_state, self.goal):
-                    goal_node = TreeNode(self.goal)
-                    goal_cost = new_node.cost + np.linalg.norm(new_node.state - self.goal)
-                    self.T.add_node(goal_node, new_node, cost=goal_cost)
-                    return self.T.get_back_path(goal_node)
-
-        # no path found
         return None
-    
+
     def sample(self, goal_start=False):
         """
         Sample a new configuration
@@ -344,6 +318,7 @@ class RRT(object):
             if self.in_collision(q, name=self.name):
                 return False
         return True
+    # end added
     
     def extend(self, T, q, goal_start=False):
         """
@@ -378,6 +353,73 @@ class RRT(object):
 
         return _TRAPPED, None
 
+    def extend_rewire(self, T, q):
+        """
+        Perform rrt* extend operation.
+        q - new configuration to extend towards
+        returns - tuple of (status, TreeNode)
+           status can be: _TRAPPED, _ADVANCED or _REACHED
+        """
+        # 1. Find the nearest node in T and the distance to q
+        x_nearest, distance = T.find_nearest(q)
+
+        # Cannot extend if q is too close to x_nearest
+        if distance < self.epsilon:
+            return _TRAPPED, None
+
+        # 2. Steer: create new point x_new at distance epsilon from x_nearest toward q
+        x_new = x_nearest.state + (q - x_nearest.state) * (self.epsilon / distance)
+        # cost to reach x_new via x_nearest
+        c_new = x_nearest.cost + np.linalg.norm(x_new - x_nearest.state)
+
+        # 3. Collision check for the new edge
+        if not self.in_collision(x_new, name=self.name):
+            # 4. Find all existing nodes within rewiring radius
+            neighbor_nodes = T.find_neighbors(x_new, self.radius)
+
+            best_parent = x_nearest
+            best_cost = c_new
+            safe_neighbor_nodes = []
+
+            # 5. Among neighbors, pick a collision-free parent with minimal cost
+            for near_node in neighbor_nodes:
+                if not self.in_collision(near_node.state, name=self.name):
+                    cost = near_node.cost + np.linalg.norm(near_node.state - x_new)
+                    if cost < best_cost:
+                        best_parent = near_node
+                        best_cost = cost
+                    safe_neighbor_nodes.append(near_node)
+
+            # 6. Create the new node with the best parent and cost, then add to T
+            new_node = TreeNode(x_new, best_parent, best_cost)
+            T.add_node(new_node, best_parent)
+
+            # 7. Rewire: try to connect safe neighbors through new_node if it lowers their cost
+            for near_node in safe_neighbor_nodes:
+                new_cost = new_node.cost + np.linalg.norm(near_node.state - new_node.state)
+                if new_cost < near_node.cost:
+                    # remove old edge and add the new lower-cost edge
+                    T.remove_edge(near_node.parent, near_node)
+                    near_node.cost = new_cost
+                    T.add_edge(new_node, near_node)
+
+            # 8. Check if the newly added node reached the goal
+            cost_to_goal = np.linalg.norm(x_new - self.goal)
+            if cost_to_goal < self.epsilon:
+                # if x_new is not exactly the goal, add a goal node
+                if not np.allclose(x_new, self.goal):
+                    goal_node = TreeNode(self.goal, new_node, new_node.cost + cost_to_goal)
+                    T.add_node(goal_node, new_node)
+                else:
+                    goal_node = new_node
+                return _REACHED, goal_node
+
+            # Successfully added node without reaching goal
+            return _ADVANCED, new_node
+
+        # Collision detected; extension is trapped
+        return _TRAPPED, None
+        
     def fake_in_collision(self, q):
         """
         We never collide with this function!
