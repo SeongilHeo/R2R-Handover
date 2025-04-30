@@ -319,11 +319,10 @@ class RRT(object):
         Sample a new configuration uniformly in the given limits,
         with probability connect_prob returning the goal.
         '''
-        if random.random() < self.connect_prob:
+        if np.random.rand() < self.connect_prob:
             return self.goal.copy()
         else:
-            return np.array([random.uniform(self.limits[i,0], self.limits[i,1])
-                             for i in range(self.n)])
+            return np.random.uniform(self.limits[:,0], self.limits[:,1])
         
     def collision_free(self, q1, q2, resolution=0.1):
         '''
@@ -338,7 +337,7 @@ class RRT(object):
             num_steps = 2
         for i in np.linspace(0, 1, num_steps):
             q = q1 + i * (q2 - q1)
-            if self.in_collision(q):
+            if self.in_collision(q, name=self.name):
                 return False
         return True
 
