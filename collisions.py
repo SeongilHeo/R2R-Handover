@@ -323,16 +323,12 @@ class PolygonEnvironment:
                 print("polygon", polygon)
             for link_num, link in enumerate(robot_links):
                 if self.point_in_polygon(link[1], polygon):
-                    print("polygon in point")
-                    return True
-                if link[1][1] < 0:
-                    print("check",link)
-                
+                    return True                
                 if _DEBUG:
                     print("Testing link", link_num)
                 for i in range(len(polygon)):
                     if _DEBUG:
-                        print("\nTestint pt", i, "on polygon", poly_num)
+                        print("\nTesting pt", i, "on polygon", poly_num)
                     prev_pt = polygon[i - 1]
                     pt = polygon[i]
                     if self.line_line_collision(link, (prev_pt, pt)):
