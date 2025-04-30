@@ -26,6 +26,7 @@ def main(args):
     connect_prob = args.connect_prob
     connect = args.connect
     bidirection = args.bidirection
+    star = args.star
     local_planner = args.local_planner
     radius = args.radius
     start = np.array([float(i) for i in args.start.split()]) if args.start else None
@@ -172,6 +173,9 @@ start-goal: ({start})-({goal})
         elif bidirection:
             plan_robot1 = model1.build_bidirectional_rrt_connect(environment.robot1.start, environment.robot1.goal)
             plan_robot2 = model2.build_bidirectional_rrt_connect(environment.robot2.start, environment.robot2.goal)
+        elif star:
+            plan_robot1 = model1.build_rrt_star(environment.robot1.start, environment.robot1.goal)
+            plan_robot2 = model2.build_rrt_star(environment.robot2.start, environment.robot2.goal)
         else:
             plan_robot1 = model1.build_rrt(environment.robot1.start, environment.robot1.goal)
             plan_robot2 = model2.build_rrt(environment.robot2.start, environment.robot2.goal)
@@ -232,6 +236,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--bidirection", action="store_true", help="Use Bidirectional RRT-Connect"
+    )
+    parser.add_argument(
+        "--star", action="store_true", help="Use RRT*"
     )
     parser.add_argument(
         "--num_samples",
