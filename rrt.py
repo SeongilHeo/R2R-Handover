@@ -13,12 +13,12 @@ class TreeNode:
     """
     Class to hold node state and connectivity for building an RRT
     """
-    def __init__(self, state, parent=None, cost=0.0):
+
+    def __init__(self, state, parent=None, cost=0.0): # cost added
         self.state = state
         self.children = []
         self.parent = parent
-
-        self.cost = cost
+        self.cost = cost  # added
 
     def add_child(self, child):
         """
@@ -54,17 +54,20 @@ class RRTSearchTree:
                 min_d = d
         return (nn, min_d)
 
-    def add_node(self, node, parent, cost=None):
-        '''
+    def add_node(self, node, parent, cost=None): # cost added
+        """
         Add a node to the tree
         node - new node to add
         parent - nodes parent, already in the tree
-        '''
+        """
+        
+        # Added
         if cost is None:
             node.cost = getattr(parent, 'cost', 0.0) + np.linalg.norm(node.state - parent.state)
         else:
             node.cost = cost
-
+        # End of added
+            
         self.nodes.append(node)
         self.edges.append((parent.state, node.state))
         node.parent = parent
@@ -129,8 +132,6 @@ class RRT(object):
 
         self.ranges = self.limits[:, 1] - self.limits[:, 0]
         self.found_path = False
-
-    
 
     def build_rrt(self, init, goal):
         """
@@ -234,7 +235,8 @@ class RRT(object):
                 T_a, T_b = T_b, T_a
 
         return None
-    
+
+    # Added
     def build_rrt_star(self, init, goal):
         """
         RRT* implementation: samples, steers, chooses best parent among neighbors,
@@ -313,17 +315,19 @@ class RRT(object):
 
         # no path found
         return None
-
-    def sample(self):
-        '''
-        Sample a new configuration uniformly in the given limits,
-        with probability connect_prob returning the goal.
-        '''
+    
+    def sample(self, goal_start=False):
+        """
+        Sample a new configuration
+        Returns a configuration of size self.n bounded in self.limits
+        """
+        # Return goal with connect_prob probability
         if np.random.rand() < self.connect_prob:
-            return self.goal.copy()
+            return self.init if goal_start else self.goal
         else:
-            return np.random.uniform(self.limits[:,0], self.limits[:,1])
+            return np.random.uniform(self.limits[:, 0], self.limits[:, 1])
         
+    # added
     def collision_free(self, q1, q2, resolution=0.1):
         '''
         Check if the path from q1 to q2 is collision free.
@@ -340,7 +344,7 @@ class RRT(object):
             if self.in_collision(q, name=self.name):
                 return False
         return True
-
+    
     def extend(self, T, q, goal_start=False):
         """
         Perform rrt extend operation.
