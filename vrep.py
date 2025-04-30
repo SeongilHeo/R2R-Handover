@@ -291,60 +291,64 @@ class VrepWrapper:
 
         return collisions, fk
     
-    def addPoint(self, points, isEnd = False):
+    def addPoint(self, point, isEnd = False):
         handle = self.importantPoints if isEnd else self.points
-        for point in points:
-            self.sim.addDrawingObjectItem(handle,point.tolist())
+        self.sim.addDrawingObjectItem(handle, point.tolist())
 
-    def addLine(self, lines, isPlan = False):
+    def addLine(self, line, isPlan = False):
         handle = self.plan if isPlan else self.edges
-        for line in lines:
-            self.sim.addDrawingObjectItem(handle,line.tolist()) # drawingObjectHandle, itemData
+        self.sim.addDrawingObjectItem(handle,line.tolist()) # drawingObjectHandle, itemData
 
+    def setJointPosition(self, robot, angles):
+        for j in range(self.num_joints-1):
+            self.sim.setJointPosition(robot.joint_handles[j], angles[j])
+        fk = self.sim.getObjectPosition(robot.gripper)
+        self.addPoint(np.array(fk))
+        return fk
+            
     def draw_plan(self, plan1, plan2, planner1, planner2, dynamic_tree=False, dynamic_plan=True, show=True):
         #dynamic_tree, dynamic_plan and show are all dummy values and do not function
-        planLines = np.zeros((len(plan1),6))                            # robot 1
-        collisions, fk = self.checkCollision(np.array(plan1), 'robot1')
-        if(np.sum(collisions) > 0):
-            print('plan failed checker')
-        for i in range(len(plan1)):
-            if(i >0):
-                planLines[i-1,3:] = fk[i,:]
-            planLines[i,:3] = fk[i,:]
-        self.addLine(planLines[:-1],1)
-
-        planLines = np.zeros((len(plan2),6))                            # robot 2
-        collisions, fk = self.checkCollision(np.array(plan2), 'robot2')
-        if(np.sum(collisions) > 0):                                 
-            print('plan failed checker')
-        for i in range(len(plan2)):
-            if(i >0):
-                planLines[i-1,3:] = fk[i,:]
-            planLines[i,:3] = fk[i,:]
-        self.addLine(planLines[:-1],1)
-
+        
         # Draw tree
         if planner1 is not None:
             print("Drawing robot1's tree")
             Qs, edges = planner1.T.get_states_and_edges()
-            totalNodes = np.reshape(np.array(edges),(-1,7))
-            collisions, fk = self.checkCollision(totalNodes, 'robot1')
-            if(np.sum(collisions) > 0):
-                print('some nodes are in collision in tree')
-            self.addLine(np.reshape(fk,(-1,6)))
-            self.addPoint(fk)
+            total_nodes = np.reshape(np.array(edges),(-1,7))
+            for idx in range(len(total_nodes)):
+                fk = self.setJointPosition(self.robot1, total_nodes[idx])
+
         if planner2 is not None:
             print("Drawing robot2's tree")
-            Qs, edges = planner2.T.get_states_and_edges()            
-            totalNodes = np.reshape(np.array(edges),(-1,7))
-            collisions, fk = self.checkCollision(totalNodes, 'robot2')
-            if(np.sum(collisions) > 0):
-                print('some nodes are in collision in tree')
-            self.addLine(np.reshape(fk,(-1,6)))
-            self.addPoint(fk)
+            Qs, edges = planner1.T.get_states_and_edges()
+            total_nodes = np.reshape(np.array(edges),(-1,7))
+            for idx in range(len(total_nodes)):
+                fk = self.setJointPosition(self.robot2, total_nodes[idx])
 
-        self.runTrajectory("robot1" ,plan1)
-        self.runTrajectory("robot2", plan2)
+        line = np.zeros((len(plan1),6))
+        for idx in range(len(plan1)):                                   # robot 1
+            fk = self.setJointPosition(self.robot1, plan1[idx])
+            if idx:
+                line[idx,3:] = fk
+                if idx+1 < line.shape[0]:
+                    line[idx+1,:3] = fk
+                self.addLine(line[idx], isPlan=True)
+            else:
+                line[idx,:3] = fk
+
+
+        line = np.zeros((len(plan2),6))
+        for idx in range(len(plan2)):                                   # robot 2
+            fk = self.setJointPosition(self.robot2, plan2[idx])
+            if idx:
+                line[idx,3:] = fk
+                if idx+1 < line.shape[0]:
+                    line[idx+1,:3] = fk
+                self.addLine(line[idx], isPlan=True)
+            else:
+                line[idx,:3] = fk
+
+        # self.runTrajectory("robot1" ,plan1)
+        # self.runTrajectory("robot2", plan2)
 
     def find_handover_point(self, num_samples=100):
         self.handover=np.array([0,0,0.5])
