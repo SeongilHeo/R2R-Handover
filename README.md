@@ -12,6 +12,69 @@ python
 ...
 ```
 
+## Files
+```
+.
+├── README.txt
+├── collisions.py
+├── env0.txt
+├── env1.txt
+├── lbr4_testscript.py
+├── prm.py
+├── rrt.py
+├── run.py
+├── vrepWrapper.py
+└── vrepfiles
+    └── vrepfiles
+        ├── ...
+        └── vrepConst.py
+```
+
+## Usage
+
+python run.py [options]
+
+### Options
+
+| Option                          | Description                                                                                  |
+|---------------------------------|----------------------------------------------------------------------------------------------|
+| `-h`, `--help`                  | Show this help message and exit.                                                             |
+| `--method METHOD`               | Method to use. (Default: `rrt`, Options: `rrt`, `prm`)                                       |
+| `--problem PROBLEM`             | Path to the environment file. (Default: `env.txt`, Options: `env.txt`, `vrep`)               |
+| `--connect`                     | Use RRT-Connect.                                                                             |
+| `--bidirection`                 | Use Bidirectional RRT-Connect.                                                               |
+| `--star`                        | Use RRT*.                                                                                    |
+| `--num_samples NUM_SAMPLES`     | Number of samples to use in the RRT. (Default: `5000`)                                       |
+| `--step_length STEP_LENGTH`     | Step length to use in the RRT.                                                               |
+| `--connect_prob CONNECT_PROB`   | Connection probability for RRT-Connect. (Default: `0.05`)                                    |
+| `--local_planner LOCAL_PLANNER` | Local planner for PRM. (Default: `line`, Options: `line`, `rrt`)                             |
+| `--radius RADIUS`               | Radius used in PRM for connection. (Default: `2.0`)                                          |
+<!-- | `--start START`                 | Start position. Format: `"x y"` (Example: `"75 50"`)                                         |
+| `--goal GOAL`                   | Goal position. Format: `"x y"` (Example: `"10 20"`)                                          | -->
+
+
+### Examples
+
+1. **Check options:**
+    ```sh
+    $ python run.py --help
+    ```
+2. **Run on 2D Plannar:**
+    ```sh
+    $ python run.py --problem env.txt
+    $ python run.py --problem vrep
+    ```
+3. **Run on 3D Coppeliasim:**
+
+    1. Start Coppeliasim.
+    2. File > Open Scence. `R2R2.ttt`
+    3. Run model.
+
+```sh
+  $ python run.py --problem vrep
+  ```
+
+
 ## Collaborator
 -  Seongil Heo 
     - Computer Science
@@ -25,8 +88,4 @@ python
 - Corbin Gurnee
   - Computer Science
   - u1261969@utah.edu
-
-<a href="https://github.com/SeongilHeo/MP_Project_Team8/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=SeongilHeo/MP_Project_Team8" alt="contrib.rocks image" />
-</a>
 
