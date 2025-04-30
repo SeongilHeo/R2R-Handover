@@ -8,7 +8,6 @@ import time
 import numpy as np
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 from scipy.optimize import minimize
-from math import pi
 
 # ROBOT = "LBRiiwa7R800"
 ROBOT = "LBRiiwa14R820"
@@ -267,14 +266,14 @@ class VrepWrapper:
             for j in range(self.num_joints):
                 self.sim.setJointPosition(joint_handles[j], single_dim_states[idx*7 + j])
             
-            # # Check collision with other
-            # for li in range(self.num_links):
-            #     for lj in range(self.num_links):
-            #         collide, collidingObjectHandles = self.sim.checkCollision(link_handles[li], other_handles[lj])
-            #         if collide:
-            #             break
-            #     if collide:
-            #         break
+            # Check collision with other
+            for li in range(self.num_links):
+                for lj in range(self.num_links):
+                    collide, collidingObjectHandles = self.sim.checkCollision(link_handles[li], other_handles[lj])
+                    if collide:
+                        break
+                if collide:
+                    break
             
             # Check collision with floor
             for l in range(1, self.num_links):
@@ -344,9 +343,6 @@ class VrepWrapper:
             self.addLine(np.reshape(fk,(-1,6)))
             self.addPoint(fk)
 
-#        return fk
-        # col,fk = self.checkCollision(np.reshape(planner1.goal,(-1,7)),  'robot2')
-        # self.addPoint(np.reshape(fk,(-1,3)),1)          
         self.runTrajectory("robot1" ,plan1)
         self.runTrajectory("robot2", plan2)
 
@@ -370,7 +366,6 @@ class VrepWrapper:
             print(tuple(f"{p:+2.09f}" for p in ps ))
 
     def vrepStop(self):
-        self.removedummy()
         self.sim.stopSimulation()
 
     def vrepReset(self):
@@ -378,18 +373,13 @@ class VrepWrapper:
         self.__init__()    
 
     def removedummy(self):
-        # for handle in self.drawing_handles:
-            # self.sim.sim.removeDrawingObjects(handle)
-        # 1. Scene 내 모든 오브젝트 핸들 가져오기
-        # all_objects = self.sim.getObjectsInTree(self.sim.handle_scene, self.sim.object_shape_type, 0)
-
-        # 2. Drawing Object 타입만 골라내기
-        # for obj in all_objects:
-        #     type = self.sim.getObjectType(obj)
-        #     if type == self.sim.drawing_points or type ==self.sim.drawing_lines:  # Drawing object는 PointCloud 타입으로 관리될 수 있음
-        #         self.sim.removeObject(obj)
-        
-        pass
+        i = 0
+        while True:
+            try: 
+                self.sim.removeDrawingObject(i)
+                i+=1
+            except:
+                break
 
     def fake_in_collision(self,q, name):
         """
