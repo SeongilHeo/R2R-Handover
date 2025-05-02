@@ -5,6 +5,7 @@ ref: https://manual.coppeliarobotics.com/index.html > Regular API reference
 """
 
 import time
+import warnings
 import numpy as np
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 from scipy.optimize import minimize
@@ -108,12 +109,18 @@ class Arm:
         if q_init is None:
             q_init = [1.57,0,0,0,0,0,0]   
 
-        result = minimize(
-            fun=lambda q: self.cost(q, target),
-            x0=np.array(q_init),
-            bounds=self.lims,
-            method='trust-constr'
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="delta_grad == 0.0.*",
+                category=UserWarning,
+            )
+            result = minimize(
+                fun=lambda q: self.cost(q, target),
+                x0=np.array(q_init),
+                bounds=self.lims,
+                method='trust-constr'
+            )
 
         return result.x
 
@@ -300,7 +307,7 @@ class VrepWrapper:
         self.sim.addDrawingObjectItem(handle,line.tolist()) # drawingObjectHandle, itemData
 
     def setJointPosition(self, robot, angles):
-        for j in range(self.num_joints-1):
+        for j in range(self.num_joints):
             self.sim.setJointPosition(robot.joint_handles[j], angles[j])
         fk = self.sim.getObjectPosition(robot.gripper)
         self.addPoint(np.array(fk))
@@ -319,33 +326,34 @@ class VrepWrapper:
 
         if planner2 is not None:
             print("Drawing robot2's tree")
-            Qs, edges = planner1.T.get_states_and_edges()
+            Qs, edges = planner2.T.get_states_and_edges()
             total_nodes = np.reshape(np.array(edges),(-1,7))
             for idx in range(len(total_nodes)):
                 fk = self.setJointPosition(self.robot2, total_nodes[idx])
 
-        line = np.zeros((len(plan1),6))
-        for idx in range(len(plan1)):                                   # robot 1
-            fk = self.setJointPosition(self.robot1, plan1[idx])
-            if idx:
-                line[idx,3:] = fk
-                if idx+1 < line.shape[0]:
-                    line[idx+1,:3] = fk
-                self.addLine(line[idx], isPlan=True)
-            else:
-                line[idx,:3] = fk
+        if plan1 is not None:
+            line = np.zeros((len(plan1),6))
+            for idx in range(len(plan1)):                                   # robot 1
+                fk = self.setJointPosition(self.robot1, plan1[idx])
+                if idx:
+                    line[idx,3:] = fk
+                    if idx+1 < line.shape[0]:
+                        line[idx+1,:3] = fk
+                    self.addLine(line[idx], isPlan=True)
+                else:
+                    line[idx,:3] = fk
 
-
-        line = np.zeros((len(plan2),6))
-        for idx in range(len(plan2)):                                   # robot 2
-            fk = self.setJointPosition(self.robot2, plan2[idx])
-            if idx:
-                line[idx,3:] = fk
-                if idx+1 < line.shape[0]:
-                    line[idx+1,:3] = fk
-                self.addLine(line[idx], isPlan=True)
-            else:
-                line[idx,:3] = fk
+        if plan2 is not None:
+            line = np.zeros((len(plan2),6))
+            for idx in range(len(plan2)):                                   # robot 2
+                fk = self.setJointPosition(self.robot2, plan2[idx])
+                if idx:
+                    line[idx,3:] = fk
+                    if idx+1 < line.shape[0]:
+                        line[idx+1,:3] = fk
+                    self.addLine(line[idx], isPlan=True)
+                else:
+                    line[idx,:3] = fk
 
         # self.runTrajectory("robot1" ,plan1)
         # self.runTrajectory("robot2", plan2)

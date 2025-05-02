@@ -3,8 +3,9 @@
 Package providing helper classes and functions for performing graph search operations for planning.
 """
 import numpy as np
-import matplotlib.pyplot as plotter
+import warnings
 from math import cos, sin, pi
+from pathlib import Path
 from scipy.optimize import minimize
 from time import time
 
@@ -17,12 +18,20 @@ _START = "Start"
 _ROBOT = "RobotLinks"
 _ROBOT_LOC = "RobotBase"
 
+
+def get_plotter():
+    import matplotlib.pyplot as plotter
+
+    return plotter
+
+
 class Table:
     def __init__(self, x=None, y=None):
         self.x = x if x else [-150,150] 
         self.y = y if y else [-10,0]
 
     def draw(self, color="lightgray", show=False):
+        plotter = get_plotter()
         plotter.fill_between(self.x, self.y[0], self.y[1], color=color)
         if show:
             plotter.show(block=True)
@@ -88,13 +97,19 @@ class RevoluteRobotChain:
             'fun': lambda q: self.table_constraint(q)  # each y >= 0
         }]
 
-        result = minimize(
-            fun=lambda q: self.cost(q, target),
-            x0=np.array(q_init),
-            bounds=self.lims,
-            constraints=constraints,
-            method='trust-constr'
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="delta_grad == 0.0.*",
+                category=UserWarning,
+            )
+            result = minimize(
+                fun=lambda q: self.cost(q, target),
+                x0=np.array(q_init),
+                bounds=self.lims,
+                constraints=constraints,
+                method='trust-constr'
+            )
 
         return result.x
 
@@ -142,7 +157,9 @@ class RevoluteRobotChain:
         """
         Draw the robot with the provided configuration
         """
-        # q = self.start
+        plotter = get_plotter()
+        if q is None:
+            q = self.start if self.start is not None else np.zeros(len(self.link_lengths))
         pts = self.fk(q)
         for i, p in enumerate(pts):
             if i == 0:
@@ -210,17 +227,19 @@ class PolygonEnvironment:
         Start: start_q_1 start_q_2 ...
         Obstacle: x1 y1 x2 y2 x3 y3 [x4 y5...xn yn]
         """
-        env_file = open(env_file_path, "r")
-        file_infos = env_file.readlines()
+        with open(env_file_path, "r") as env_file:
+            file_infos = env_file.readlines()
+
         for l in file_infos:
             line_info = l.strip().split()
-            if line_info[0].startswith("#"):
+            if not line_info or line_info[0].startswith("#"):
                 continue
-            if "_" in line_info[0]:
-                func, idx = line_info[0].split("_")
+            token = line_info[0].rstrip(":")
+            if "_" in token:
+                func, idx = token.split("_")
                 self.line_parser[func](line_info[1:], int(idx[0]))
             else:
-                self.line_parser[line_info[0][:-1]](line_info[1:])
+                self.line_parser[token](line_info[1:])
 
     def parse_bounds(self, line_data):
         """
@@ -415,6 +434,7 @@ class PolygonEnvironment:
         """
         Draw the environment obstacle map
         """
+        plotter = get_plotter()
 
         plotter.figure(figsize=(10, 5))
         plotter.axis([self.x_min-10, self.x_max+10, self.y_min-50, self.y_max+50])
@@ -436,12 +456,12 @@ class PolygonEnvironment:
         # Set robots position   (x,y) -> (theta_1, theta_2, theta_3)
         if self.robot1.start is not None:          # robot 1
             q1 = self.robot1.start
-        elif p1:
+        elif p1 is not None:
             q1 = self.robot1.ik(p1)
 
         if self.robot2.start is not None:          # robot 2
             q2 = self.robot2.start
-        elif p2: 
+        elif p2 is not None:
             q2 = self.robot2.ik(p2)
         # Draw robots
         if q1 is not None:                          # robot 1                       #  drawing
@@ -457,7 +477,7 @@ class PolygonEnvironment:
         # Draw start and goal
         plotter.plot(start_x[0], start_x[1], "ro", markersize=8)                    # start 
         plotter.plot(goal_x[0], goal_x[1], "mo", markersize=8)                      # goal
-        if self.handover:
+        if self.handover is not None:
             plotter.plot(self.handover[0], self.handover[1], "yo", markersize=8)    # handover
 
         if show:
@@ -472,7 +492,9 @@ class PolygonEnvironment:
         dynamic_tree=False,
         dynamic_plan=True,
         show=False,
-        save=True
+        save=True,
+        frame_dir="assets/frames",
+        output_path="assets/robot_motion.gif",
     ):
         """
         Draw the environment with an overlaid plan.
@@ -482,15 +504,17 @@ class PolygonEnvironment:
                   if None the search graph is not drawn
         """
         self.draw_env(show=False)
+        plotter = get_plotter()
         if save:
-            import os
             import imageio.v2 as imageio
 
-            folder_path = "frames"
-            os.makedirs(folder_path, exist_ok=True)
+            folder_path = Path(frame_dir)
+            folder_path.mkdir(parents=True, exist_ok=True)
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
             frame_i=0
 
-            plotter.savefig(f"frames/frame_{frame_i:04d}.png")
+            plotter.savefig(folder_path / f"frame_{frame_i:04d}.png")
             frame_i+=1
 
         plotter.ion()
@@ -510,7 +534,7 @@ class PolygonEnvironment:
                 if dynamic_tree:
                     plotter.pause(0.001)
                 if save:
-                    plotter.savefig(f"frames/frame_{frame_i:04d}.png")
+                    plotter.savefig(folder_path / f"frame_{frame_i:04d}.png")
                     frame_i+=1
 
         if planner2 is not None:
@@ -526,7 +550,7 @@ class PolygonEnvironment:
                 if dynamic_tree:
                     plotter.pause(0.001)
                 if save:
-                    plotter.savefig(f"frames/frame_{frame_i:04d}.png")
+                    plotter.savefig(folder_path / f"frame_{frame_i:04d}.png")
                     frame_i+=1
 
 
@@ -561,7 +585,7 @@ class PolygonEnvironment:
                 if dynamic_plan:
                     plotter.pause(0.1)
                 if save:
-                    plotter.savefig(f"frames/frame_{frame_i:04d}.png")
+                    plotter.savefig(folder_path / f"frame_{frame_i:04d}.png")
                     frame_i+=1
 
 
@@ -586,33 +610,36 @@ class PolygonEnvironment:
                 if dynamic_plan:
                     plotter.pause(0.01)
                 if save:
-                    plotter.savefig(f"frames/frame_{frame_i:04d}.png")
+                    plotter.savefig(folder_path / f"frame_{frame_i:04d}.png")
                     frame_i+=1
 
 
-            self.robot1.draw(plan1[-1], color="r")
+            if plan1 is not None:
+                self.robot1.draw(plan1[-1], color="r")
             self.robot2.draw(plan2[-1], color="r")
         if save:
-            plotter.savefig(f"frames/frame_{frame_i:04d}.png")
+            plotter.savefig(folder_path / f"frame_{frame_i:04d}.png")
 
             # files = os.listdir(folder_path)
             # files = [os.path.join(folder_path, f) for f in files]
             # files.sort()
-            with imageio.get_writer("robot_motion.gif", mode='I', duration=0.1) as writer:
+            with imageio.get_writer(output_path, mode='I', duration=0.1) as writer:
                 for idx in range(frame_i):
-                    fname = f"frames/frame_{idx:04d}.png"
+                    fname = folder_path / f"frame_{idx:04d}.png"
                     image = imageio.imread(fname)
                     writer.append_data(image)
-                    os.remove(fname)
+                    fname.unlink()
         
         # stay on ending frame
         if show:
             plotter.show(block=True)
 
 
-    def find_handover_point(self, num_samples=100):
-        self.handover=[0,50]
-        return
+    def find_handover_point(self, num_samples=100, fixed_point=(0, 50)):
+        if fixed_point is not None:
+            self.handover = np.array(fixed_point, dtype=float)
+            return
+
         center = (self.start + self.goal) / 2
         max_radius = 100
         num_rings = 10
@@ -647,5 +674,3 @@ class PolygonEnvironment:
         self.robot1.goal = self.robot1.ik(self.handover)
         self.robot2.start = self.robot2.ik(self.handover)
         self.robot2.goal = self.robot2.ik(self.goal)
-
-

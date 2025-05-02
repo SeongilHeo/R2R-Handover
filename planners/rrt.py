@@ -1,8 +1,6 @@
 #!/usr/bin/env python
-"""
-Package providing helper classes and functions for performing graph search operations for planning.
-"""
-from tracemalloc import start
+"""Rapidly-exploring random tree planners."""
+
 import numpy as np
 from time import time
 
@@ -17,19 +15,39 @@ _TOTAL = 3
 
 def compute_dist(A, B):
     """
-    Compute the cost of a path
-    path - list of states in the path
-    returns - cost of the path
+    Compute the Euclidean distance between two states.
     """
-    cost = np.linalg.norm(A - B)
+    cost = np.linalg.norm(np.asarray(A) - np.asarray(B))
     return cost
 
 def compute_smooth(path):
-    pass
+    """
+    Compute a simple smoothness cost from heading changes along a path.
+    """
+    if path is None or len(path) < 3:
+        return 0.0
+
+    smoothness = 0.0
+    for i in range(1, len(path) - 1):
+        prev_step = np.asarray(path[i]) - np.asarray(path[i - 1])
+        next_step = np.asarray(path[i + 1]) - np.asarray(path[i])
+        prev_norm = np.linalg.norm(prev_step)
+        next_norm = np.linalg.norm(next_step)
+        if prev_norm == 0 or next_norm == 0:
+            continue
+        cosine = np.dot(prev_step, next_step) / (prev_norm * next_norm)
+        smoothness += np.arccos(np.clip(cosine, -1.0, 1.0))
+    return smoothness
 
 
 def compute_cost(path):
-    pass
+    """
+    Compute the total length of a path.
+    """
+    if path is None or len(path) < 2:
+        return 0.0
+
+    return sum(compute_dist(path[i], path[i + 1]) for i in range(len(path) - 1))
 
 class TreeNode:
     """
@@ -56,7 +74,7 @@ class TreeNode:
 
 class RRTSearchTree:
     """
-    Searh tree used for building an RRT
+    Search tree used for building an RRT
     """
 
     def __init__(self, init):
@@ -69,7 +87,7 @@ class RRTSearchTree:
 
     def find_nearest(self, s_query):
         """
-        Find node in tree closets to s_query
+        Find node in tree closest to s_query
         returns - (nearest node, dist to nearest node)
         """
         min_d = 1000000
@@ -127,7 +145,7 @@ class RRTSearchTree:
 
     def get_states_and_edges(self):
         """
-        Return a list of states and edgs in the tree
+        Return a list of states and edges in the tree
         """
         states = np.array([n.state for n in self.nodes])
         return (states, self.edges)
@@ -192,7 +210,7 @@ class RRT(object):
             _TOTAL: 0
         }
 
-        self.record =[]
+        self.records = []
 
     def build_rrt(self, init, goal):
         """
@@ -249,7 +267,7 @@ class RRT(object):
     def build_bidirectional_rrt_connect(self, init, goal):
         """
         Build two rrt connect trees from init and goal
-        Growing towards each oter
+        Growing towards each other
         Returns path to goal or None
         """
         self.goal = np.array(goal)
@@ -303,7 +321,6 @@ class RRT(object):
         self.time_table[_TOTAL] = (time() - start_time)
         return None
 
-    # Added
     def build_rrt_star(self, init, goal):
         """
         RRT* implementation: samples, steers, chooses best parent among neighbors,
@@ -316,18 +333,57 @@ class RRT(object):
         # Build tree and search
         self.T = RRTSearchTree(init)
         start_time = time()
+        goal_node = None
         for i in range(self.K):
             x_rand = self.sample()
             status, new_node = self.extend_rewire(self.T, x_rand)
             if status == _REACHED:
-                self.record(i, self.T.get_back_path(new_node))
+                goal_node = new_node
+                self.record_path(i, self.T.get_back_path(new_node))
 
-        if status == _REACHED:
+        if goal_node is not None:
             self.time_table[_TOTAL] = (time() - start_time)
-            return self.T.get_back_path(new_node)
+            return self.T.get_back_path(goal_node)
         
         self.time_table[_TOTAL] = (time() - start_time)
         return None
+
+    def build_rrt_star_trace(self, init, goal):
+        """
+        Run RRT* and record cumulative timing and best path length each iteration.
+        """
+        self.goal = np.array(goal)
+        self.init = np.array(init)
+        self.found_path = False
+
+        self.T = RRTSearchTree(init)
+        self.records = []
+        best_node = None
+        start_time = time()
+
+        for iter_idx in range(1, self.K + 1):
+            x_rand = self.sample()
+            status, new_node = self.extend_rewire(self.T, x_rand)
+
+            if status == _REACHED:
+                best_node = new_node
+
+            best_path = self.T.get_back_path(best_node) if best_node is not None else None
+            total_time = time() - start_time
+            self.time_table[_TOTAL] = total_time
+            self.records.append(
+                {
+                    "iter": iter_idx,
+                    "collision": self.time_table[_COLLISION],
+                    "near": self.time_table[_NEAR],
+                    "neighbors": self.time_table[_NEIGH],
+                    "total": total_time,
+                    "path": compute_cost(best_path),
+                }
+            )
+
+        self.time_table[_TOTAL] = time() - start_time
+        return (self.T.get_back_path(best_node) if best_node is not None else None), self.records
 
     def sample(self, goal_start=False):
         """
@@ -366,7 +422,7 @@ class RRT(object):
             T.add_node(new_node, x_near)
 
             if compute_dist(x_new, goal) < self.epsilon:
-                if (x_new != goal).all():
+                if not np.allclose(x_new, goal):
                     goal_node = TreeNode(goal, new_node)
                     T.add_node(goal_node, new_node)
                 else:
@@ -455,16 +511,20 @@ class RRT(object):
         # Collision detected; extension is trapped
         return _TRAPPED, None
         
-    def fake_in_collision(self, q):
+    def plan(self, start, goal):
+        """
+        Provide a local-planner interface for PRM.
+        """
+        return self.build_rrt_connect(start, goal)
+
+    def fake_in_collision(self, q, name=None):
         """
         We never collide with this function!
         """
         return False
 
-    def record(self, iter, path):
+    def record_path(self, iter, path):
         """
         Record the path and time taken
         """
-        self.record.append([iter, path, self.time_table.items()])
-
-
+        self.records.append([iter, path, dict(self.time_table)])

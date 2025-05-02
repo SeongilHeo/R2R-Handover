@@ -1,0 +1,13 @@
+name: r2r-handover
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy
+  - scipy
+  - matplotlib
+  - imageio
+  - pandas
+  - pip
+  - pip:
+      - coppeliasim-zmqremoteapi-client

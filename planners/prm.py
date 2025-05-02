@@ -1,13 +1,15 @@
 #!/usr/bin/env python
-"""
-Package providing implementation of a probabilistic roadmap algorithm
-"""
+"""Probabilistic roadmap planner."""
+
+import heapq
+from itertools import count
 
 import numpy as np
-import heapq
-from rrt import *
 
-def fake_in_collision(q):
+from planners.rrt import RRT
+
+
+def fake_in_collision(q, name=None):
     """
     We never collide with this function!
     """
@@ -32,12 +34,14 @@ class PriorityQ:
         """
         self.l = []  # list storing the priority q
         self.s = set()  # set for fast membership testing
+        self._counter = count()
 
     def __contains__(self, x):
         """
         Test if x is in the queue
         """
-        return x in self.s
+        key = tuple(x.state.tolist()) if hasattr(x, "state") else x
+        return key in self.s
 
     def push(self, x, cost):
         """
@@ -46,7 +50,7 @@ class PriorityQ:
         """
         if tuple(x.state.tolist()) in self.s:
             return self.replace(x, cost)
-        heapq.heappush(self.l, (cost, x))
+        heapq.heappush(self.l, (cost, next(self._counter), x))
         self.s.add(tuple(x.state.tolist()))
 
     def pop(self):
@@ -54,15 +58,15 @@ class PriorityQ:
         Get the value and remove the lowest cost element from the queue
         """
         x = heapq.heappop(self.l)
-        self.s.remove(tuple(x[1].state.tolist()))
-        return x[1]
+        self.s.remove(tuple(x[2].state.tolist()))
+        return x[2]
 
     def peak(self):
         """
         Get the value of the lowest cost element in the priority queue
         """
         x = self.l[0]
-        return x[1]
+        return x[2]
 
     def __len__(self):
         """
@@ -75,16 +79,16 @@ class PriorityQ:
         Removes element x from the q and replaces it with x with the new_cost
         """
         for y in self.l:
-            if tuple(x.state.tolist()) == tuple(y[1].state.tolist()):
+            if tuple(x.state.tolist()) == tuple(y[2].state.tolist()):
                 self.l.remove(y)
-                self.s.remove(tuple(y[1].state.tolist()))
+                self.s.remove(tuple(y[2].state.tolist()))
                 break
         heapq.heapify(self.l)
         self.push(x, new_cost)
 
     def get_cost(self, x):
         for y in self.l:
-            if tuple(x.state.tolist()) == tuple(y[1].state.tolist()):
+            if tuple(x.state.tolist()) == tuple(y[2].state.tolist()):
                 return y[0]
 
     def __str__(self):
@@ -172,7 +176,7 @@ class RoadMapNode:
     def __init__(self, state, cost=0, parent=None):
         self.state = np.array(state)
         self.neighbors = []
-        self.cost = 0
+        self.cost = cost
         self.parent = parent
 
     def add_neighbor(self, n_new):
@@ -234,7 +238,7 @@ class RoadMap:
             return self.cuts[key]
         elif self.cuts.get(rkey):
             path, cost = self.cuts[rkey]
-            return reversed(path), cost
+            return list(reversed(path)), cost
         else:
             return None
 
@@ -259,7 +263,7 @@ class PRM:
         self.N = num_samples
         self.n = num_dimensions
         self.r = radius
-        self.epsilon = epsilon  # step_lenght
+        self.epsilon = epsilon
         self.graph_search = self.uniform_cost_search
         self.name = name
 
@@ -279,11 +283,12 @@ class PRM:
                 collision_func=collision_func,
                 name=name
             )
+        else:
+            raise ValueError(f"Unknown local planner: {local_planner}")
 
         self.in_collision = collision_func
         if collision_func is None:
             self.in_collision = fake_in_collision
-
 
         self.limits = lims
         # Setup range limits
@@ -353,7 +358,7 @@ class PRM:
         # Run search on the roadmap to find a plan
         start_node.parent = None
         local_plan, global_plan, visited = self.graph_search(start_node, is_goal)
-        if local_plan and not (local_plan[-1] == goal).all():
+        if local_plan and not np.allclose(local_plan[-1], goal):
             local_plan.append(goal)
             global_plan.append(goal)
         return local_plan, global_plan, visited
